@@ -717,7 +717,7 @@ const DEFAULT_CONFIG = {
   plex:      { url: '', apiKey: '', name: 'Plex',      role: 'Media Server',    color: '#e5a00d', emoji: '▶️', token: '' },
 };
 
-let config = JSON.parse(localStorage.getItem('arrflow_config') || 'null') || DEFAULT_CONFIG;
+let config = JSON.parse(JSON.stringify(DEFAULT_CONFIG)); // overwritten by loadConfig()
 let state = { services: {}, pipeline: {}, downloads: [], recentPlex: [] };
 let refreshInterval = null;
 
@@ -777,7 +777,9 @@ function saveSettings() {
     const userEl = document.getElementById(`cfg-${key}-username`);
     if (userEl) config[key].username = userEl.value.trim();
   });
-  localStorage.setItem('arrflow_config', JSON.stringify(config));
+  // Save to server
+  fetch('/api/config', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(config) })
+    .catch(err => console.error('Failed to save config:', err));
   closeSettings();
   refreshAll();
 }
@@ -1204,14 +1206,32 @@ async function refreshAll() {
 }
 
 // ============================================================
+// LOAD CONFIG FROM SERVER
+// ============================================================
+async function loadConfig() {
+  try {
+    const res = await fetch('/api/config');
+    const saved = await res.json();
+    if (saved && typeof saved === 'object') {
+      // Merge saved values into DEFAULT_CONFIG so new keys always exist
+      Object.keys(DEFAULT_CONFIG).forEach(key => {
+        if (saved[key]) config[key] = { ...DEFAULT_CONFIG[key], ...saved[key] };
+      });
+    }
+  } catch (err) {
+    console.warn('Could not load config from server, using defaults:', err);
+  }
+}
+
+// ============================================================
 // INIT
 // ============================================================
-// Render initial empty service cards
-renderServicesGrid({ radarr: null, sonarr: null, lidarr: null, sabnzbd: null, qbit: null, overseerr: null, plex: null });
-
-// Auto-refresh every 30 seconds
-refreshAll();
-setInterval(refreshAll, 30000);
+// Load config from server first, then start
+loadConfig().then(() => {
+  renderServicesGrid({ radarr: null, sonarr: null, lidarr: null, sabnzbd: null, qbit: null, overseerr: null, plex: null });
+  refreshAll();
+  setInterval(refreshAll, 30000);
+});
 
 // Close modal on outside click
 document.getElementById('settings-modal').addEventListener('click', function(e) {

@@ -6,6 +6,13 @@ const url = require('url');
 
 const PORT = process.env.PORT || 3000;
 const PUBLIC_DIR = path.join(__dirname, 'public');
+const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, 'data');
+const CONFIG_FILE = path.join(DATA_DIR, 'config.json');
+
+// Ensure data directory exists
+if (!fs.existsSync(DATA_DIR)) {
+  fs.mkdirSync(DATA_DIR, { recursive: true });
+}
 
 // MIME types
 const MIME = {
@@ -17,8 +24,17 @@ const MIME = {
   '.ico': 'image/x-icon',
 };
 
+// Read body helper
+function readBody(req) {
+  return new Promise((resolve, reject) => {
+    let body = '';
+    req.on('data', chunk => body += chunk);
+    req.on('end', () => resolve(body));
+    req.on('error', reject);
+  });
+}
+
 // Proxy routes - maps /proxy/<service>/* to the target service
-// The frontend passes ?_base=<encoded-url> to tell us where to proxy
 function proxyRequest(req, res, targetBase, targetPath) {
   const parsedTarget = url.parse(targetBase);
   const isHttps = parsedTarget.protocol === 'https:';
@@ -26,12 +42,10 @@ function proxyRequest(req, res, targetBase, targetPath) {
 
   const proxyPath = targetPath + (req.url.includes('?') ? req.url.slice(req.url.indexOf('?')) : '');
 
-  // Strip our internal params from the query string
   const parsedUrl = url.parse(proxyPath, true);
   delete parsedUrl.query['_base'];
   delete parsedUrl.query['_format'];
 
-  // Rebuild query string without _base and _format
   const qs = Object.entries(parsedUrl.query)
     .filter(([k]) => !['_base', '_format'].includes(k))
     .map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`)
@@ -48,10 +62,9 @@ function proxyRequest(req, res, targetBase, targetPath) {
       'Accept': 'application/json',
       'Content-Type': 'application/json',
     },
-    rejectUnauthorized: false, // Allow self-signed certs (common in homelab)
+    rejectUnauthorized: false,
   };
 
-  // Forward relevant headers
   if (req.headers['x-api-key']) options.headers['X-Api-Key'] = req.headers['x-api-key'];
   if (req.headers['authorization']) options.headers['Authorization'] = req.headers['authorization'];
 
@@ -82,7 +95,7 @@ function proxyRequest(req, res, targetBase, targetPath) {
   }
 }
 
-const server = http.createServer((req, res) => {
+const server = http.createServer(async (req, res) => {
   const parsedUrl = url.parse(req.url, true);
   const pathname = parsedUrl.pathname;
 
@@ -94,6 +107,40 @@ const server = http.createServer((req, res) => {
       'Access-Control-Allow-Headers': 'Content-Type, X-Api-Key, Authorization',
     });
     res.end();
+    return;
+  }
+
+  // GET /api/config — return saved config
+  if (pathname === '/api/config' && req.method === 'GET') {
+    try {
+      if (fs.existsSync(CONFIG_FILE)) {
+        const data = fs.readFileSync(CONFIG_FILE, 'utf8');
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(data);
+      } else {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end('null');
+      }
+    } catch (err) {
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: err.message }));
+    }
+    return;
+  }
+
+  // POST /api/config — save config
+  if (pathname === '/api/config' && req.method === 'POST') {
+    try {
+      const body = await readBody(req);
+      JSON.parse(body); // Validate JSON
+      fs.writeFileSync(CONFIG_FILE, body, 'utf8');
+      console.log('[CONFIG] Saved to', CONFIG_FILE);
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ ok: true }));
+    } catch (err) {
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: err.message }));
+    }
     return;
   }
 
@@ -118,7 +165,6 @@ const server = http.createServer((req, res) => {
   // Serve static files
   let filePath = path.join(PUBLIC_DIR, pathname === '/' ? 'index.html' : pathname);
 
-  // Security: prevent path traversal
   if (!filePath.startsWith(PUBLIC_DIR)) {
     res.writeHead(403);
     res.end('Forbidden');
@@ -128,7 +174,6 @@ const server = http.createServer((req, res) => {
   fs.readFile(filePath, (err, data) => {
     if (err) {
       if (err.code === 'ENOENT') {
-        // SPA fallback
         fs.readFile(path.join(PUBLIC_DIR, 'index.html'), (err2, data2) => {
           if (err2) { res.writeHead(404); res.end('Not found'); return; }
           res.writeHead(200, { 'Content-Type': 'text/html' });
@@ -149,5 +194,5 @@ const server = http.createServer((req, res) => {
 
 server.listen(PORT, '0.0.0.0', () => {
   console.log(`ARRFlow running on http://0.0.0.0:${PORT}`);
-  console.log(`Proxy endpoint: http://0.0.0.0:${PORT}/proxy/<service>/<path>?_base=<encoded-service-url>`);
+  console.log(`Config persisted to: ${CONFIG_FILE}`);
 });
