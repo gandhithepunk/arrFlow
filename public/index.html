@@ -840,7 +840,7 @@ async function fetchSABnzbd() {
   const { url, apiKey } = config.sabnzbd;
   if (!url || !apiKey) return null;
   try {
-    const cleanUrl = url.replace(/\/sabnzbd\/?$/, ''); const data = await apiFetch(`/proxy/sabnzbd/sabnzbd/api?mode=queue&output=json&apikey=${apiKey}&_base=${encodeURIComponent(cleanUrl)}`);
+    const data = await apiFetch(`/proxy/sabnzbd/api?mode=queue&output=json&apikey=${apiKey}&_base=${encodeURIComponent(url)}`);
     return data.queue || null;
   } catch { return null; }
 }
