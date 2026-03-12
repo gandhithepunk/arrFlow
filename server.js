@@ -48,7 +48,7 @@ function proxyRequest(req, res, targetBase, targetPath) {
 
   const qs = Object.entries(parsedUrl.query)
     .filter(([k]) => !['_base', '_format'].includes(k))
-    .map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`)
+    .map(([k, v]) => `${encodeURIComponent(k)}=${v}`)
     .join('&');
 
   const cleanPath = (parsedUrl.pathname || '') + (qs ? '?' + qs : '');
