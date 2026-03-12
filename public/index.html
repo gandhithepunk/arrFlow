@@ -382,15 +382,26 @@
     .stage-failed { border-color: var(--red); color: var(--red); background: var(--red-dim); }
 
     .progress-bar-wrap {
-      width: 120px;
+      width: 160px;
+    }
+    .progress-bar-track {
       height: 4px;
       background: var(--border);
       overflow: hidden;
+      margin-bottom: 3px;
     }
     .progress-bar-fill {
       height: 100%;
-      background: var(--accent);
       transition: width 1s linear;
+    }
+    .progress-bar-fill.overall { background: var(--purple); }
+    .progress-bar-fill.current { background: var(--accent); }
+    .progress-bar-label {
+      display: flex;
+      justify-content: space-between;
+      font-size: 9px;
+      color: var(--text-dim);
+      margin-bottom: 5px;
     }
 
     .type-icon {
@@ -1034,6 +1045,20 @@ function renderPipeline(results) {
   document.getElementById('p-importing').textContent = importing;
 }
 
+function getOverallProgress(stage, downloadPct) {
+  // Maps pipeline stage to overall journey progress (0-100)
+  switch(stage) {
+    case 'requested':   return 5;
+    case 'searching':   return 15;
+    case 'queued':      return 20;
+    case 'downloading': return 20 + Math.round(downloadPct * 0.65); // 20-85%
+    case 'importing':   return 88;
+    case 'imported':    return 94;
+    case 'available':   return 100;
+    default:            return 20 + Math.round(downloadPct * 0.65);
+  }
+}
+
 function renderDownloads(results) {
   const { radarr, sonarr, lidarr, sabnzbd, qbit } = results;
   const items = [];
@@ -1107,9 +1132,21 @@ function renderDownloads(results) {
       <td><span class="stage-badge stage-${item.stage}">${item.stage}</span></td>
       <td>
         <div class="progress-bar-wrap">
-          <div class="progress-bar-fill" style="width:${item.progress}%"></div>
+          <div class="progress-bar-label">
+            <span style="color:var(--purple)">JOURNEY</span>
+            <span>${getOverallProgress(item.stage, item.progress)}%</span>
+          </div>
+          <div class="progress-bar-track">
+            <div class="progress-bar-fill overall" style="width:${getOverallProgress(item.stage, item.progress)}%"></div>
+          </div>
+          <div class="progress-bar-label" style="margin-left:12px;padding-left:8px;border-left:1px solid var(--border-bright)">
+            <span style="color:var(--text-dim)">${item.stage.toUpperCase()}</span>
+            <span>${item.progress}%</span>
+          </div>
+          <div class="progress-bar-track" style="margin-left:12px">
+            <div class="progress-bar-fill current" style="width:${item.progress}%"></div>
+          </div>
         </div>
-        <div style="font-size:10px;color:var(--text-dim);margin-top:3px">${item.progress}%</div>
       </td>
       <td><span class="size-value">${item.size}</span></td>
       <td><span class="speed-value">${item.speed || '—'}</span></td>
