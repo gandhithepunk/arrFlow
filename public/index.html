@@ -1141,9 +1141,18 @@ function renderRecentPlex(plexData) {
   }
 
   const cards = recent.slice(0, 12).map(item => {
-    const icon = item.type === 'movie' ? '🎥' : item.type === 'episode' ? '📺' : '🎵';
-    const title = item.grandparentTitle ? `${item.grandparentTitle}` : item.title;
-    const sub = item.grandparentTitle ? `${item.title}` : item.year || '';
+    const isTv = item.type === 'episode' || item.type === 'season';
+    const isMusic = item.type === 'track' || item.type === 'album' || item.type === 'artist';
+    const icon = item.type === 'movie' ? '🎥' : isTv ? '📺' : isMusic ? '🎵' : '🎬';
+    // Show name: for seasons use parentTitle (show name), for episodes use grandparentTitle
+    const title = item.type === 'season'
+      ? (item.parentTitle || item.title)
+      : (item.grandparentTitle || item.parentTitle || item.title);
+    const sub = item.type === 'episode'
+      ? `S${String(item.parentIndex||'?').padStart(2,'0')}E${String(item.index||'?').padStart(2,'0')} · ${item.title}`
+      : item.type === 'season'
+      ? item.title  // e.g. "Season 1"
+      : item.year || '';
     const added = item.addedAt ? timeSince(new Date(item.addedAt * 1000)) : '';
     return `
       <div class="completion-card">
