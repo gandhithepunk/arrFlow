@@ -1,0 +1,19 @@
+version: "3.8"
+
+services:
+  arrflow:
+    image: ghcr.io/gandhithepunk/arrflow:latest
+    container_name: arrflow
+    ports:
+      - "3000:3000"
+    environment:
+      - PORT=3000
+    restart: unless-stopped
+    # If your *arr stack runs in the same Docker network, uncomment:
+    # networks:
+    #   - arr_network
+
+# networks:
+#   arr_network:
+#     external: true
+#     name: your_arr_network_name
