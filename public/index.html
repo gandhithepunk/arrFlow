@@ -787,8 +787,8 @@ function saveSettings() {
 // ============================================================
 // API CALLS (via proxy)
 // ============================================================
-async function apiFetch(path) {
-  const res = await fetch(path);
+async function apiFetch(path, headers = {}) {
+  const res = await fetch(path, { headers });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return res.json();
 }
@@ -864,7 +864,7 @@ async function fetchOverseerr() {
   const { url, apiKey } = config.overseerr;
   if (!url || !apiKey) return null;
   try {
-    const data = await apiFetch(`/proxy/overseerr/api/v1/request?take=20&filter=pending&_base=${encodeURIComponent(url)}&X-Api-Key=${apiKey}`);
+    const data = await apiFetch(`/proxy/overseerr/api/v1/request?take=20&filter=pending&_base=${encodeURIComponent(url)}`, { 'X-Api-Key': apiKey });
     return data;
   } catch { return null; }
 }
