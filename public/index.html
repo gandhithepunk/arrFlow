@@ -1,0 +1,1223 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ARR Pipeline Monitor</title>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;700&family=Syne:wght@400;600;800&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --bg: #0a0c0f;
+      --surface: #111418;
+      --border: #1e2530;
+      --border-bright: #2a3545;
+      --text: #c8d8e8;
+      --text-dim: #4a5a6a;
+      --text-bright: #e8f4ff;
+      --accent: #00d4ff;
+      --accent-dim: #003d4d;
+      --green: #00ff88;
+      --green-dim: #003320;
+      --yellow: #ffcc00;
+      --yellow-dim: #332a00;
+      --red: #ff4466;
+      --red-dim: #330011;
+      --purple: #aa66ff;
+      --purple-dim: #220033;
+      --orange: #ff8844;
+
+      --overseerr: #e5a00d;
+      --radarr: #ffc230;
+      --sonarr: #35c5f4;
+      --lidarr: #1da352;
+      --sabnzbd: #f5a623;
+      --qbit: #2b7bba;
+      --plex: #e5a00d;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 13px;
+      min-height: 100vh;
+      overflow-x: hidden;
+    }
+
+    /* Scanline overlay */
+    body::before {
+      content: '';
+      position: fixed;
+      inset: 0;
+      background: repeating-linear-gradient(
+        0deg,
+        transparent,
+        transparent 2px,
+        rgba(0,0,0,0.04) 2px,
+        rgba(0,0,0,0.04) 4px
+      );
+      pointer-events: none;
+      z-index: 9999;
+    }
+
+    header {
+      padding: 20px 32px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      background: linear-gradient(180deg, #0d1117 0%, transparent 100%);
+    }
+
+    .logo {
+      font-family: 'Syne', sans-serif;
+      font-weight: 800;
+      font-size: 20px;
+      letter-spacing: -0.5px;
+      color: var(--text-bright);
+    }
+    .logo span { color: var(--accent); }
+
+    .status-bar {
+      display: flex;
+      gap: 20px;
+      align-items: center;
+      font-size: 11px;
+      color: var(--text-dim);
+    }
+    .pulse-dot {
+      width: 6px; height: 6px;
+      border-radius: 50%;
+      background: var(--green);
+      display: inline-block;
+      margin-right: 6px;
+      animation: pulse 2s infinite;
+    }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; box-shadow: 0 0 4px var(--green); }
+      50% { opacity: 0.4; box-shadow: none; }
+    }
+
+    .settings-btn {
+      background: none;
+      border: 1px solid var(--border-bright);
+      color: var(--text-dim);
+      padding: 6px 14px;
+      cursor: pointer;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 11px;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+      transition: all 0.2s;
+    }
+    .settings-btn:hover { border-color: var(--accent); color: var(--accent); }
+
+    main {
+      padding: 24px 32px;
+      max-width: 1600px;
+      margin: 0 auto;
+    }
+
+    /* PIPELINE FLOW */
+    .pipeline-section {
+      margin-bottom: 32px;
+    }
+    .section-label {
+      font-size: 10px;
+      letter-spacing: 3px;
+      text-transform: uppercase;
+      color: var(--text-dim);
+      margin-bottom: 16px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .section-label::after {
+      content: '';
+      flex: 1;
+      height: 1px;
+      background: var(--border);
+    }
+
+    .pipeline-flow {
+      display: flex;
+      align-items: stretch;
+      gap: 0;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      overflow: hidden;
+    }
+
+    .pipe-stage {
+      flex: 1;
+      padding: 16px 20px;
+      position: relative;
+      border-right: 1px solid var(--border);
+      transition: background 0.3s;
+    }
+    .pipe-stage:last-child { border-right: none; }
+    .pipe-stage.active { background: rgba(0, 212, 255, 0.04); }
+    .pipe-stage.done { background: rgba(0, 255, 136, 0.03); }
+    .pipe-stage.error { background: rgba(255, 68, 102, 0.05); }
+
+    .pipe-arrow {
+      position: absolute;
+      right: -12px;
+      top: 50%;
+      transform: translateY(-50%);
+      z-index: 10;
+      width: 24px;
+      height: 24px;
+      background: var(--bg);
+      border: 1px solid var(--border-bright);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 10px;
+      color: var(--text-dim);
+    }
+
+    .pipe-service {
+      font-size: 10px;
+      letter-spacing: 2px;
+      text-transform: uppercase;
+      color: var(--text-dim);
+      margin-bottom: 8px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .service-dot {
+      width: 6px; height: 6px;
+      border-radius: 50%;
+    }
+
+    .pipe-status {
+      font-size: 11px;
+      font-weight: 500;
+      margin-bottom: 4px;
+    }
+    .pipe-count {
+      font-size: 24px;
+      font-family: 'Syne', sans-serif;
+      font-weight: 800;
+      color: var(--text-bright);
+      line-height: 1;
+      margin-bottom: 4px;
+    }
+    .pipe-sub {
+      font-size: 10px;
+      color: var(--text-dim);
+    }
+
+    /* SERVICE CARDS */
+    .services-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+      gap: 16px;
+      margin-bottom: 32px;
+    }
+
+    .service-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      padding: 20px;
+      position: relative;
+      overflow: hidden;
+      transition: border-color 0.3s;
+    }
+    .service-card:hover { border-color: var(--border-bright); }
+    .service-card::before {
+      content: '';
+      position: absolute;
+      top: 0; left: 0; right: 0;
+      height: 2px;
+    }
+    .service-card.overseerr::before { background: var(--overseerr); }
+    .service-card.radarr::before { background: var(--radarr); }
+    .service-card.sonarr::before { background: var(--sonarr); }
+    .service-card.lidarr::before { background: var(--lidarr); }
+    .service-card.sabnzbd::before { background: var(--sabnzbd); }
+    .service-card.qbittorrent::before { background: var(--qbit); }
+    .service-card.plex::before { background: var(--plex); }
+
+    .card-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      margin-bottom: 16px;
+    }
+    .card-service-name {
+      font-family: 'Syne', sans-serif;
+      font-weight: 600;
+      font-size: 15px;
+      color: var(--text-bright);
+    }
+    .card-service-role {
+      font-size: 10px;
+      color: var(--text-dim);
+      letter-spacing: 1px;
+      text-transform: uppercase;
+      margin-top: 2px;
+    }
+
+    .card-status-badge {
+      font-size: 10px;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+      padding: 3px 8px;
+      display: flex;
+      align-items: center;
+      gap: 5px;
+    }
+    .badge-online { border: 1px solid var(--green); color: var(--green); background: var(--green-dim); }
+    .badge-offline { border: 1px solid var(--red); color: var(--red); background: var(--red-dim); }
+    .badge-loading { border: 1px solid var(--text-dim); color: var(--text-dim); }
+
+    .card-metrics {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 10px;
+    }
+    .metric {
+      background: rgba(255,255,255,0.02);
+      border: 1px solid var(--border);
+      padding: 10px 12px;
+    }
+    .metric-label {
+      font-size: 10px;
+      color: var(--text-dim);
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      margin-bottom: 4px;
+    }
+    .metric-value {
+      font-size: 18px;
+      font-family: 'Syne', sans-serif;
+      font-weight: 700;
+      color: var(--text-bright);
+    }
+    .metric-value.accent { color: var(--accent); }
+    .metric-value.green { color: var(--green); }
+    .metric-value.yellow { color: var(--yellow); }
+    .metric-value.red { color: var(--red); }
+
+    /* ACTIVE DOWNLOADS TABLE */
+    .activity-section {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      margin-bottom: 32px;
+    }
+    .activity-header {
+      padding: 14px 20px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .activity-title {
+      font-family: 'Syne', sans-serif;
+      font-weight: 600;
+      font-size: 13px;
+      color: var(--text-bright);
+    }
+    .activity-count {
+      font-size: 11px;
+      color: var(--text-dim);
+      background: var(--border);
+      padding: 2px 8px;
+    }
+
+    .activity-table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+    .activity-table th {
+      text-align: left;
+      padding: 10px 20px;
+      font-size: 10px;
+      letter-spacing: 2px;
+      text-transform: uppercase;
+      color: var(--text-dim);
+      border-bottom: 1px solid var(--border);
+      font-weight: 400;
+    }
+    .activity-table td {
+      padding: 12px 20px;
+      border-bottom: 1px solid var(--border);
+      font-size: 12px;
+      vertical-align: middle;
+    }
+    .activity-table tr:last-child td { border-bottom: none; }
+    .activity-table tr:hover td { background: rgba(255,255,255,0.015); }
+
+    .item-title {
+      color: var(--text-bright);
+      font-weight: 500;
+      margin-bottom: 2px;
+      max-width: 280px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .item-meta { color: var(--text-dim); font-size: 10px; }
+
+    .stage-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 3px 8px;
+      font-size: 10px;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+      border: 1px solid;
+    }
+    .stage-requested { border-color: var(--purple); color: var(--purple); background: var(--purple-dim); }
+    .stage-searching { border-color: var(--yellow); color: var(--yellow); background: var(--yellow-dim); }
+    .stage-downloading { border-color: var(--accent); color: var(--accent); background: var(--accent-dim); }
+    .stage-importing { border-color: var(--orange); color: var(--orange); background: rgba(255,136,68,0.1); }
+    .stage-available { border-color: var(--green); color: var(--green); background: var(--green-dim); }
+    .stage-failed { border-color: var(--red); color: var(--red); background: var(--red-dim); }
+
+    .progress-bar-wrap {
+      width: 120px;
+      height: 4px;
+      background: var(--border);
+      overflow: hidden;
+    }
+    .progress-bar-fill {
+      height: 100%;
+      background: var(--accent);
+      transition: width 1s linear;
+    }
+
+    .type-icon {
+      font-size: 16px;
+      width: 28px;
+      text-align: center;
+    }
+
+    /* RECENT COMPLETIONS */
+    .completions-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+      gap: 12px;
+    }
+    .completion-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      padding: 14px;
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+      transition: border-color 0.2s;
+    }
+    .completion-card:hover { border-color: var(--green); }
+    .completion-icon { font-size: 22px; flex-shrink: 0; }
+    .completion-info { min-width: 0; }
+    .completion-title {
+      font-size: 11px;
+      color: var(--text-bright);
+      font-weight: 500;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .completion-meta { font-size: 10px; color: var(--text-dim); margin-top: 2px; }
+    .completion-time { font-size: 10px; color: var(--green); margin-top: 4px; }
+
+    /* MODAL / SETTINGS */
+    .modal-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.85);
+      z-index: 1000;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.2s;
+    }
+    .modal-overlay.open { opacity: 1; pointer-events: all; }
+    .modal {
+      background: var(--surface);
+      border: 1px solid var(--border-bright);
+      width: 680px;
+      max-width: 95vw;
+      max-height: 90vh;
+      overflow-y: auto;
+    }
+    .modal-header {
+      padding: 20px 24px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .modal-title {
+      font-family: 'Syne', sans-serif;
+      font-weight: 700;
+      font-size: 16px;
+      color: var(--text-bright);
+    }
+    .modal-close {
+      background: none;
+      border: 1px solid var(--border-bright);
+      color: var(--text-dim);
+      width: 28px; height: 28px;
+      cursor: pointer;
+      font-size: 14px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: all 0.2s;
+    }
+    .modal-close:hover { border-color: var(--red); color: var(--red); }
+    .modal-body { padding: 24px; }
+
+    .settings-service-group {
+      margin-bottom: 24px;
+    }
+    .settings-service-title {
+      font-family: 'Syne', sans-serif;
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text-bright);
+      margin-bottom: 12px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .settings-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+      margin-bottom: 10px;
+    }
+    .settings-field {
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+    }
+    .settings-field label {
+      font-size: 10px;
+      color: var(--text-dim);
+      text-transform: uppercase;
+      letter-spacing: 1px;
+    }
+    .settings-field input {
+      background: var(--bg);
+      border: 1px solid var(--border-bright);
+      color: var(--text-bright);
+      padding: 8px 10px;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 12px;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+    .settings-field input:focus { border-color: var(--accent); }
+
+    .save-btn {
+      background: var(--accent-dim);
+      border: 1px solid var(--accent);
+      color: var(--accent);
+      padding: 10px 24px;
+      cursor: pointer;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 12px;
+      letter-spacing: 2px;
+      text-transform: uppercase;
+      transition: all 0.2s;
+      width: 100%;
+      margin-top: 8px;
+    }
+    .save-btn:hover { background: var(--accent); color: var(--bg); }
+
+    .empty-state {
+      padding: 40px;
+      text-align: center;
+      color: var(--text-dim);
+      font-size: 12px;
+    }
+
+    .refresh-btn {
+      background: none;
+      border: 1px solid var(--border-bright);
+      color: var(--text-dim);
+      padding: 4px 10px;
+      cursor: pointer;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 10px;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+      transition: all 0.2s;
+    }
+    .refresh-btn:hover { border-color: var(--accent); color: var(--accent); }
+    .spin { animation: spin 1s linear infinite; }
+    @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+
+    .error-banner {
+      background: var(--red-dim);
+      border: 1px solid var(--red);
+      color: var(--red);
+      padding: 10px 16px;
+      font-size: 11px;
+      margin-bottom: 16px;
+      display: none;
+    }
+    .error-banner.show { display: block; }
+
+    .tooltip {
+      position: relative;
+    }
+    .tooltip:hover::after {
+      content: attr(data-tip);
+      position: absolute;
+      bottom: calc(100% + 6px);
+      left: 50%;
+      transform: translateX(-50%);
+      background: #1a2030;
+      border: 1px solid var(--border-bright);
+      padding: 4px 8px;
+      font-size: 10px;
+      color: var(--text);
+      white-space: nowrap;
+      z-index: 100;
+    }
+
+    .size-value { color: var(--yellow); }
+    .speed-value { color: var(--accent); }
+
+    @media (max-width: 768px) {
+      main { padding: 16px; }
+      header { padding: 14px 16px; }
+      .pipeline-flow { flex-direction: column; }
+      .pipe-arrow { display: none; }
+      .services-grid { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <div class="logo">ARR<span>FLOW</span></div>
+  <div class="status-bar">
+    <span id="last-refresh">Never refreshed</span>
+    <button class="settings-btn" onclick="openSettings()">⚙ Config</button>
+    <button class="refresh-btn" id="refresh-btn" onclick="refreshAll()">↻ Refresh</button>
+  </div>
+</header>
+
+<main>
+  <div class="error-banner" id="error-banner"></div>
+
+  <!-- PIPELINE FLOW -->
+  <div class="pipeline-section">
+    <div class="section-label">Pipeline Overview</div>
+    <div class="pipeline-flow" id="pipeline-flow">
+      <div class="pipe-stage" id="stage-requested">
+        <div class="pipe-service"><span class="service-dot" style="background:var(--purple)"></span>Overseerr</div>
+        <div class="pipe-count" id="p-requested">—</div>
+        <div class="pipe-status">Pending Requests</div>
+        <div class="pipe-sub">Awaiting approval or search</div>
+        <div class="pipe-arrow">›</div>
+      </div>
+      <div class="pipe-stage" id="stage-searching">
+        <div class="pipe-service"><span class="service-dot" style="background:var(--radarr)"></span>Radarr / Sonarr / Lidarr</div>
+        <div class="pipe-count" id="p-searching">—</div>
+        <div class="pipe-status">Searching</div>
+        <div class="pipe-sub">Finding releases</div>
+        <div class="pipe-arrow">›</div>
+      </div>
+      <div class="pipe-stage" id="stage-downloading">
+        <div class="pipe-service"><span class="service-dot" style="background:var(--sabnzbd)"></span>SABnzbd / qBittorrent</div>
+        <div class="pipe-count" id="p-downloading">—</div>
+        <div class="pipe-status">Downloading</div>
+        <div class="pipe-sub" id="p-dl-speed">—</div>
+        <div class="pipe-arrow">›</div>
+      </div>
+      <div class="pipe-stage" id="stage-importing">
+        <div class="pipe-service"><span class="service-dot" style="background:var(--orange)"></span>Import Queue</div>
+        <div class="pipe-count" id="p-importing">—</div>
+        <div class="pipe-status">Processing</div>
+        <div class="pipe-sub">Renaming & moving</div>
+        <div class="pipe-arrow">›</div>
+      </div>
+      <div class="pipe-stage" id="stage-plex">
+        <div class="pipe-service"><span class="service-dot" style="background:var(--plex)"></span>Plex</div>
+        <div class="pipe-count" id="p-plex">—</div>
+        <div class="pipe-status">Library Size</div>
+        <div class="pipe-sub" id="p-plex-sub">Movies + Shows + Music</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- SERVICE CARDS -->
+  <div class="section-label">Service Health</div>
+  <div class="services-grid" id="services-grid">
+    <!-- populated by JS -->
+  </div>
+
+  <!-- ACTIVE DOWNLOADS -->
+  <div class="activity-section">
+    <div class="activity-header">
+      <span class="activity-title">Active Downloads</span>
+      <span class="activity-count" id="active-count">0 items</span>
+    </div>
+    <div id="active-downloads-body">
+      <div class="empty-state">No active downloads — configure services to see data</div>
+    </div>
+  </div>
+
+  <!-- RECENTLY ADDED -->
+  <div class="pipeline-section">
+    <div class="section-label">Recently Added to Plex</div>
+    <div class="completions-grid" id="completions-grid">
+      <div class="empty-state" style="grid-column:1/-1">Connect Plex to see recent additions</div>
+    </div>
+  </div>
+</main>
+
+<!-- SETTINGS MODAL -->
+<div class="modal-overlay" id="settings-modal">
+  <div class="modal">
+    <div class="modal-header">
+      <span class="modal-title">Service Configuration</span>
+      <button class="modal-close" onclick="closeSettings()">✕</button>
+    </div>
+    <div class="modal-body">
+      <p style="color:var(--text-dim);font-size:11px;margin-bottom:20px;line-height:1.6">
+        Enter the base URL and API key for each service. Leave blank to disable. 
+        The proxy server handles CORS — use internal Docker network hostnames (e.g. <code style="color:var(--accent)">http://radarr:7878</code>) or LAN IPs.
+      </p>
+
+      <div id="settings-form">
+        <!-- populated by JS -->
+      </div>
+
+      <button class="save-btn" onclick="saveSettings()">Save & Refresh</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ============================================================
+// CONFIG & STATE
+// ============================================================
+const DEFAULT_CONFIG = {
+  overseerr: { url: '', apiKey: '', name: 'Overseerr', role: 'Request Manager', color: '#e5a00d', emoji: '🎬' },
+  radarr:    { url: '', apiKey: '', name: 'Radarr',    role: 'Movie Manager',   color: '#ffc230', emoji: '🎥' },
+  sonarr:    { url: '', apiKey: '', name: 'Sonarr',    role: 'TV Manager',      color: '#35c5f4', emoji: '📺' },
+  lidarr:    { url: '', apiKey: '', name: 'Lidarr',    role: 'Music Manager',   color: '#1da352', emoji: '🎵' },
+  sabnzbd:   { url: '', apiKey: '', name: 'SABnzbd',   role: 'Usenet Downloader', color: '#f5a623', emoji: '📡' },
+  qbittorrent: { url: '', apiKey: '', name: 'qBittorrent', role: 'Torrent Client', color: '#2b7bba', emoji: '⚡', username: '', password: '' },
+  plex:      { url: '', apiKey: '', name: 'Plex',      role: 'Media Server',    color: '#e5a00d', emoji: '▶️', token: '' },
+};
+
+let config = JSON.parse(localStorage.getItem('arrflow_config') || 'null') || DEFAULT_CONFIG;
+let state = { services: {}, pipeline: {}, downloads: [], recentPlex: [] };
+let refreshInterval = null;
+
+// ============================================================
+// SETTINGS
+// ============================================================
+function openSettings() {
+  renderSettingsForm();
+  document.getElementById('settings-modal').classList.add('open');
+}
+function closeSettings() {
+  document.getElementById('settings-modal').classList.remove('open');
+}
+
+function renderSettingsForm() {
+  const form = document.getElementById('settings-form');
+  form.innerHTML = Object.entries(config).map(([key, svc]) => `
+    <div class="settings-service-group">
+      <div class="settings-service-title">
+        <span>${svc.emoji}</span> ${svc.name}
+        <span style="color:var(--text-dim);font-size:11px;font-weight:400">${svc.role}</span>
+      </div>
+      <div class="settings-row">
+        <div class="settings-field">
+          <label>Base URL</label>
+          <input type="text" id="cfg-${key}-url" placeholder="http://localhost:${getDefaultPort(key)}" value="${svc.url}" />
+        </div>
+        <div class="settings-field">
+          <label>${key === 'plex' ? 'Plex Token' : key === 'qbittorrent' ? 'Password' : 'API Key'}</label>
+          <input type="password" id="cfg-${key}-apiKey" placeholder="${key === 'plex' ? 'X-Plex-Token' : 'API key'}" value="${svc.apiKey || svc.token || svc.password || ''}" />
+        </div>
+        ${key === 'qbittorrent' ? `
+        <div class="settings-field">
+          <label>Username</label>
+          <input type="text" id="cfg-${key}-username" placeholder="admin" value="${svc.username || ''}" />
+        </div>` : ''}
+      </div>
+    </div>
+  `).join('');
+}
+
+function getDefaultPort(key) {
+  const ports = { overseerr: 5055, radarr: 7878, sonarr: 8989, lidarr: 8686, sabnzbd: 8080, qbittorrent: 8080, plex: 32400 };
+  return ports[key] || 8080;
+}
+
+function saveSettings() {
+  Object.keys(config).forEach(key => {
+    const urlEl = document.getElementById(`cfg-${key}-url`);
+    const keyEl = document.getElementById(`cfg-${key}-apiKey`);
+    if (urlEl) config[key].url = urlEl.value.trim().replace(/\/$/, '');
+    if (keyEl) {
+      if (key === 'plex') config[key].token = keyEl.value.trim();
+      else if (key === 'qbittorrent') config[key].password = keyEl.value.trim();
+      else config[key].apiKey = keyEl.value.trim();
+    }
+    const userEl = document.getElementById(`cfg-${key}-username`);
+    if (userEl) config[key].username = userEl.value.trim();
+  });
+  localStorage.setItem('arrflow_config', JSON.stringify(config));
+  closeSettings();
+  refreshAll();
+}
+
+// ============================================================
+// API CALLS (via proxy)
+// ============================================================
+async function apiFetch(path) {
+  const res = await fetch(path);
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
+}
+
+async function fetchRadarr() {
+  const { url, apiKey } = config.radarr;
+  if (!url || !apiKey) return null;
+  const [queue, movies, wanted] = await Promise.allSettled([
+    apiFetch(`/proxy/radarr/api/v3/queue?apikey=${apiKey}&_base=${encodeURIComponent(url)}`),
+    apiFetch(`/proxy/radarr/api/v3/movie?apikey=${apiKey}&_base=${encodeURIComponent(url)}`),
+    apiFetch(`/proxy/radarr/api/v3/wanted/missing?apikey=${apiKey}&_base=${encodeURIComponent(url)}&pageSize=1`),
+  ]);
+  return {
+    queue: queue.status === 'fulfilled' ? queue.value : null,
+    movies: movies.status === 'fulfilled' ? movies.value : null,
+    wanted: wanted.status === 'fulfilled' ? wanted.value : null,
+  };
+}
+
+async function fetchSonarr() {
+  const { url, apiKey } = config.sonarr;
+  if (!url || !apiKey) return null;
+  const [queue, series, wanted] = await Promise.allSettled([
+    apiFetch(`/proxy/sonarr/api/v3/queue?apikey=${apiKey}&_base=${encodeURIComponent(url)}`),
+    apiFetch(`/proxy/sonarr/api/v3/series?apikey=${apiKey}&_base=${encodeURIComponent(url)}`),
+    apiFetch(`/proxy/sonarr/api/v3/wanted/missing?apikey=${apiKey}&_base=${encodeURIComponent(url)}&pageSize=1`),
+  ]);
+  return {
+    queue: queue.status === 'fulfilled' ? queue.value : null,
+    series: series.status === 'fulfilled' ? series.value : null,
+    wanted: wanted.status === 'fulfilled' ? wanted.value : null,
+  };
+}
+
+async function fetchLidarr() {
+  const { url, apiKey } = config.lidarr;
+  if (!url || !apiKey) return null;
+  const [queue, artists] = await Promise.allSettled([
+    apiFetch(`/proxy/lidarr/api/v1/queue?apikey=${apiKey}&_base=${encodeURIComponent(url)}`),
+    apiFetch(`/proxy/lidarr/api/v1/artist?apikey=${apiKey}&_base=${encodeURIComponent(url)}`),
+  ]);
+  return {
+    queue: queue.status === 'fulfilled' ? queue.value : null,
+    artists: artists.status === 'fulfilled' ? artists.value : null,
+  };
+}
+
+async function fetchSABnzbd() {
+  const { url, apiKey } = config.sabnzbd;
+  if (!url || !apiKey) return null;
+  try {
+    const data = await apiFetch(`/proxy/sabnzbd/sabnzbd/api?mode=queue&output=json&apikey=${apiKey}&_base=${encodeURIComponent(url)}`);
+    return data.queue || null;
+  } catch { return null; }
+}
+
+async function fetchQbit() {
+  const { url } = config.qbittorrent;
+  if (!url) return null;
+  try {
+    const [torrents, speed] = await Promise.allSettled([
+      apiFetch(`/proxy/qbittorrent/api/v2/torrents/info?_base=${encodeURIComponent(url)}`),
+      apiFetch(`/proxy/qbittorrent/api/v2/transfer/info?_base=${encodeURIComponent(url)}`),
+    ]);
+    return {
+      torrents: torrents.status === 'fulfilled' ? torrents.value : [],
+      speed: speed.status === 'fulfilled' ? speed.value : null,
+    };
+  } catch { return null; }
+}
+
+async function fetchOverseerr() {
+  const { url, apiKey } = config.overseerr;
+  if (!url || !apiKey) return null;
+  try {
+    const data = await apiFetch(`/proxy/overseerr/api/v1/request?take=20&filter=pending&_base=${encodeURIComponent(url)}&X-Api-Key=${apiKey}`);
+    return data;
+  } catch { return null; }
+}
+
+async function fetchPlex() {
+  const { url, token } = config.plex;
+  if (!url || !token) return null;
+  try {
+    const [sections, recent] = await Promise.allSettled([
+      apiFetch(`/proxy/plex/library/sections?X-Plex-Token=${token}&_base=${encodeURIComponent(url)}&_format=json`),
+      apiFetch(`/proxy/plex/library/recentlyAdded?X-Plex-Token=${token}&_base=${encodeURIComponent(url)}&_format=json&X-Plex-Container-Size=12`),
+    ]);
+    return {
+      sections: sections.status === 'fulfilled' ? sections.value : null,
+      recent: recent.status === 'fulfilled' ? recent.value : null,
+    };
+  } catch { return null; }
+}
+
+// ============================================================
+// RENDER
+// ============================================================
+function formatBytes(bytes) {
+  if (!bytes) return '0 B';
+  const units = ['B','KB','MB','GB','TB'];
+  let i = 0;
+  while (bytes >= 1024 && i < units.length - 1) { bytes /= 1024; i++; }
+  return `${bytes.toFixed(1)} ${units[i]}`;
+}
+
+function formatSpeed(bps) {
+  return formatBytes(bps) + '/s';
+}
+
+function timeSince(date) {
+  const s = Math.floor((Date.now() - new Date(date)) / 1000);
+  if (s < 60) return `${s}s ago`;
+  if (s < 3600) return `${Math.floor(s/60)}m ago`;
+  if (s < 86400) return `${Math.floor(s/3600)}h ago`;
+  return `${Math.floor(s/86400)}d ago`;
+}
+
+function renderServiceCard(key, data, online, extraMetrics) {
+  const svc = config[key];
+  const badgeClass = online === null ? 'badge-loading' : online ? 'badge-online' : 'badge-offline';
+  const badgeText = online === null ? '···' : online ? 'Online' : 'Offline';
+  const badgeDot = online === null ? '' : online ? '<span class="pulse-dot"></span>' : '✕ ';
+
+  return `
+    <div class="service-card ${key}">
+      <div class="card-header">
+        <div>
+          <div class="card-service-name">${svc.emoji} ${svc.name}</div>
+          <div class="card-service-role">${svc.role}</div>
+        </div>
+        <div class="card-status-badge ${badgeClass}">${badgeDot}${badgeText}</div>
+      </div>
+      ${!svc.url ? `<div style="color:var(--text-dim);font-size:11px">Not configured — click ⚙ Config</div>` : ''}
+      ${svc.url && extraMetrics ? `
+      <div class="card-metrics">
+        ${extraMetrics.map(m => `
+          <div class="metric">
+            <div class="metric-label">${m.label}</div>
+            <div class="metric-value ${m.class || ''}">${m.value}</div>
+          </div>
+        `).join('')}
+      </div>` : ''}
+    </div>
+  `;
+}
+
+function renderServicesGrid(results) {
+  const { radarr, sonarr, lidarr, sabnzbd, qbit, overseerr, plex } = results;
+
+  const cards = [];
+
+  // Overseerr
+  const oData = overseerr;
+  cards.push(renderServiceCard('overseerr', oData, oData !== null && config.overseerr.url, oData ? [
+    { label: 'Pending', value: oData?.pageInfo?.results ?? '—', class: 'yellow' },
+    { label: 'Total Requests', value: oData?.pageInfo?.results !== undefined ? '✓' : '—' },
+  ] : null));
+
+  // Radarr
+  cards.push(renderServiceCard('radarr', radarr, radarr !== null && config.radarr.url, radarr ? [
+    { label: 'Movies', value: radarr.movies?.length ?? '—', class: 'accent' },
+    { label: 'In Queue', value: radarr.queue?.totalRecords ?? 0, class: 'yellow' },
+    { label: 'Missing', value: radarr.wanted?.totalRecords ?? '—', class: 'red' },
+    { label: 'Available', value: radarr.movies?.filter(m => m.hasFile).length ?? '—', class: 'green' },
+  ] : null));
+
+  // Sonarr
+  cards.push(renderServiceCard('sonarr', sonarr, sonarr !== null && config.sonarr.url, sonarr ? [
+    { label: 'Series', value: sonarr.series?.length ?? '—', class: 'accent' },
+    { label: 'In Queue', value: sonarr.queue?.totalRecords ?? 0, class: 'yellow' },
+    { label: 'Missing Eps', value: sonarr.wanted?.totalRecords ?? '—', class: 'red' },
+    { label: 'Monitored', value: sonarr.series?.filter(s => s.monitored).length ?? '—', class: 'green' },
+  ] : null));
+
+  // Lidarr
+  cards.push(renderServiceCard('lidarr', lidarr, lidarr !== null && config.lidarr.url, lidarr ? [
+    { label: 'Artists', value: lidarr.artists?.length ?? '—', class: 'accent' },
+    { label: 'In Queue', value: lidarr.queue?.totalRecords ?? 0, class: 'yellow' },
+  ] : null));
+
+  // SABnzbd
+  const sab = sabnzbd;
+  cards.push(renderServiceCard('sabnzbd', sab, sab !== null && config.sabnzbd.url, sab ? [
+    { label: 'Queue', value: sab.noofslots ?? '—', class: 'yellow' },
+    { label: 'Speed', value: sab.speed ? sab.speed + '/s' : '—', class: 'accent' },
+    { label: 'Remaining', value: sab.mbleft ? formatBytes(sab.mbleft * 1024 * 1024) : '—' },
+    { label: 'Status', value: sab.status ?? '—', class: sab.status === 'Downloading' ? 'green' : '' },
+  ] : null));
+
+  // qBittorrent
+  const qb = qbit;
+  cards.push(renderServiceCard('qbittorrent', qb, qb !== null && config.qbittorrent.url, qb ? [
+    { label: 'Torrents', value: qb.torrents?.length ?? '—', class: 'accent' },
+    { label: 'Active', value: qb.torrents?.filter(t => t.state === 'downloading').length ?? '—', class: 'yellow' },
+    { label: 'DL Speed', value: qb.speed ? formatSpeed(qb.speed.dl_info_speed) : '—', class: 'accent' },
+    { label: 'UP Speed', value: qb.speed ? formatSpeed(qb.speed.up_info_speed) : '—' },
+  ] : null));
+
+  // Plex
+  const plexSections = plex?.sections?.MediaContainer?.Directory;
+  const movieLib = plexSections?.find(s => s.type === 'movie');
+  const tvLib = plexSections?.find(s => s.type === 'show');
+  const musicLib = plexSections?.find(s => s.type === 'artist');
+  cards.push(renderServiceCard('plex', plex, plex !== null && config.plex.url, plex ? [
+    { label: 'Movies', value: movieLib?.count ?? '—', class: 'green' },
+    { label: 'TV Shows', value: tvLib?.count ?? '—', class: 'green' },
+    { label: 'Music', value: musicLib?.count ?? '—', class: 'green' },
+    { label: 'Libraries', value: plexSections?.length ?? '—', class: 'accent' },
+  ] : null));
+
+  document.getElementById('services-grid').innerHTML = cards.join('');
+}
+
+function renderPipeline(results) {
+  const { radarr, sonarr, lidarr, sabnzbd, qbit, overseerr } = results;
+
+  // Pending requests
+  const pending = overseerr?.pageInfo?.results ?? '—';
+  document.getElementById('p-requested').textContent = pending;
+
+  // Searching (wanted/missing across all *arr)
+  const searching = (radarr?.queue?.totalRecords ?? 0) + (sonarr?.queue?.totalRecords ?? 0) + (lidarr?.queue?.totalRecords ?? 0);
+  document.getElementById('p-searching').textContent = searching || '0';
+
+  // Downloading
+  const sabCount = sabnzbd?.noofslots ?? 0;
+  const qbitCount = qbit?.torrents?.filter(t => ['downloading','stalledDL','checkingDL'].includes(t.state)).length ?? 0;
+  const dlCount = sabCount + qbitCount;
+  document.getElementById('p-downloading').textContent = dlCount;
+
+  // Speed
+  let totalSpeed = 0;
+  if (sabnzbd?.kbpersec) totalSpeed += parseFloat(sabnzbd.kbpersec) * 1024;
+  if (qbit?.speed?.dl_info_speed) totalSpeed += qbit.speed.dl_info_speed;
+  document.getElementById('p-dl-speed').textContent = totalSpeed > 0 ? formatSpeed(totalSpeed) : 'Idle';
+
+  // Import queue (combined queue items that are in post-processing)
+  const importing = [
+    ...(radarr?.queue?.records?.filter(r => r.status === 'importing') ?? []),
+    ...(sonarr?.queue?.records?.filter(r => r.status === 'importing') ?? []),
+  ].length;
+  document.getElementById('p-importing').textContent = importing;
+}
+
+function renderDownloads(results) {
+  const { radarr, sonarr, lidarr, sabnzbd, qbit } = results;
+  const items = [];
+
+  // SABnzbd
+  if (sabnzbd?.slots) {
+    sabnzbd.slots.slice(0, 5).forEach(slot => {
+      items.push({
+        title: slot.filename || slot.name,
+        source: 'SABnzbd',
+        stage: 'downloading',
+        progress: parseFloat(slot.percentage) || 0,
+        size: formatBytes((parseFloat(slot.mb) || 0) * 1024 * 1024),
+        speed: sabnzbd.speed ? sabnzbd.speed + '/s' : null,
+        type: '📡',
+        eta: slot.timeleft,
+      });
+    });
+  }
+
+  // qBittorrent
+  if (qbit?.torrents) {
+    qbit.torrents.filter(t => t.state !== 'pausedUP' && t.state !== 'uploading').slice(0, 5).forEach(t => {
+      items.push({
+        title: t.name,
+        source: 'qBittorrent',
+        stage: t.state === 'downloading' ? 'downloading' : t.state === 'checkingDL' ? 'importing' : 'downloading',
+        progress: Math.round((t.progress || 0) * 100),
+        size: formatBytes(t.size),
+        speed: t.dlspeed > 0 ? formatSpeed(t.dlspeed) : null,
+        type: '⚡',
+        eta: t.eta > 0 && t.eta < 8640000 ? `${Math.floor(t.eta/60)}m` : null,
+      });
+    });
+  }
+
+  // *arr queue items
+  const arrQueues = [
+    ...(radarr?.queue?.records?.map(r => ({...r, _type: '🎥'})) ?? []),
+    ...(sonarr?.queue?.records?.map(r => ({...r, _type: '📺'})) ?? []),
+    ...(lidarr?.queue?.records?.map(r => ({...r, _type: '🎵'})) ?? []),
+  ];
+  arrQueues.slice(0, 5).forEach(item => {
+    const pct = item.size > 0 ? Math.round(((item.size - (item.sizeleft || 0)) / item.size) * 100) : 0;
+    items.push({
+      title: item.title || 'Unknown',
+      source: item.protocol === 'usenet' ? 'SABnzbd' : 'qBittorrent',
+      stage: item.status || 'downloading',
+      progress: pct,
+      size: formatBytes(item.size),
+      speed: item.downloadClientHasFile ? null : null,
+      type: item._type,
+      eta: item.estimatedCompletionTime ? timeSince(item.estimatedCompletionTime) : null,
+    });
+  });
+
+  document.getElementById('active-count').textContent = `${items.length} item${items.length !== 1 ? 's' : ''}`;
+
+  if (items.length === 0) {
+    document.getElementById('active-downloads-body').innerHTML = `<div class="empty-state">No active downloads${!config.sabnzbd.url && !config.qbittorrent.url ? ' — configure SABnzbd or qBittorrent' : ''}</div>`;
+    return;
+  }
+
+  const rows = items.map(item => `
+    <tr>
+      <td><span class="type-icon">${item.type}</span></td>
+      <td>
+        <div class="item-title">${item.title}</div>
+        <div class="item-meta">${item.source}${item.eta ? ` · ETA: ${item.eta}` : ''}</div>
+      </td>
+      <td><span class="stage-badge stage-${item.stage}">${item.stage}</span></td>
+      <td>
+        <div class="progress-bar-wrap">
+          <div class="progress-bar-fill" style="width:${item.progress}%"></div>
+        </div>
+        <div style="font-size:10px;color:var(--text-dim);margin-top:3px">${item.progress}%</div>
+      </td>
+      <td><span class="size-value">${item.size}</span></td>
+      <td><span class="speed-value">${item.speed || '—'}</span></td>
+    </tr>
+  `).join('');
+
+  document.getElementById('active-downloads-body').innerHTML = `
+    <table class="activity-table">
+      <thead>
+        <tr>
+          <th></th>
+          <th>Title</th>
+          <th>Stage</th>
+          <th>Progress</th>
+          <th>Size</th>
+          <th>Speed</th>
+        </tr>
+      </thead>
+      <tbody>${rows}</tbody>
+    </table>
+  `;
+}
+
+function renderRecentPlex(plexData) {
+  const recent = plexData?.recent?.MediaContainer?.Metadata;
+  if (!recent || !recent.length) {
+    document.getElementById('completions-grid').innerHTML = `<div class="empty-state" style="grid-column:1/-1">Connect Plex to see recent additions</div>`;
+    return;
+  }
+
+  const cards = recent.slice(0, 12).map(item => {
+    const icon = item.type === 'movie' ? '🎥' : item.type === 'episode' ? '📺' : '🎵';
+    const title = item.grandparentTitle ? `${item.grandparentTitle}` : item.title;
+    const sub = item.grandparentTitle ? `${item.title}` : item.year || '';
+    const added = item.addedAt ? timeSince(new Date(item.addedAt * 1000)) : '';
+    return `
+      <div class="completion-card">
+        <div class="completion-icon">${icon}</div>
+        <div class="completion-info">
+          <div class="completion-title">${title}</div>
+          <div class="completion-meta">${sub}</div>
+          <div class="completion-time">Added ${added}</div>
+        </div>
+      </div>
+    `;
+  }).join('');
+
+  document.getElementById('completions-grid').innerHTML = cards;
+}
+
+// ============================================================
+// MAIN REFRESH
+// ============================================================
+async function refreshAll() {
+  const btn = document.getElementById('refresh-btn');
+  btn.classList.add('spin');
+  btn.disabled = true;
+
+  try {
+    const [radarr, sonarr, lidarr, sabnzbd, qbit, overseerr, plex] = await Promise.allSettled([
+      fetchRadarr(),
+      fetchSonarr(),
+      fetchLidarr(),
+      fetchSABnzbd(),
+      fetchQbit(),
+      fetchOverseerr(),
+      fetchPlex(),
+    ]);
+
+    const results = {
+      radarr: radarr.status === 'fulfilled' ? radarr.value : null,
+      sonarr: sonarr.status === 'fulfilled' ? sonarr.value : null,
+      lidarr: lidarr.status === 'fulfilled' ? lidarr.value : null,
+      sabnzbd: sabnzbd.status === 'fulfilled' ? sabnzbd.value : null,
+      qbit: qbit.status === 'fulfilled' ? qbit.value : null,
+      overseerr: overseerr.status === 'fulfilled' ? overseerr.value : null,
+      plex: plex.status === 'fulfilled' ? plex.value : null,
+    };
+
+    renderServicesGrid(results);
+    renderPipeline(results);
+    renderDownloads(results);
+    renderRecentPlex(results.plex);
+
+    document.getElementById('last-refresh').textContent = `Last refresh: ${new Date().toLocaleTimeString()}`;
+    document.getElementById('error-banner').classList.remove('show');
+  } catch (err) {
+    document.getElementById('error-banner').textContent = `Error: ${err.message}`;
+    document.getElementById('error-banner').classList.add('show');
+  } finally {
+    btn.classList.remove('spin');
+    btn.disabled = false;
+  }
+}
+
+// ============================================================
+// INIT
+// ============================================================
+// Render initial empty service cards
+renderServicesGrid({ radarr: null, sonarr: null, lidarr: null, sabnzbd: null, qbit: null, overseerr: null, plex: null });
+
+// Auto-refresh every 30 seconds
+refreshAll();
+setInterval(refreshAll, 30000);
+
+// Close modal on outside click
+document.getElementById('settings-modal').addEventListener('click', function(e) {
+  if (e.target === this) closeSettings();
+});
+</script>
+
+</body>
+</html>
